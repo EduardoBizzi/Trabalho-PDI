@@ -129,7 +129,43 @@ class Aplicacao:
             padx=(0, 10)
         )
 
-        self.criar_controles(controles)
+        canvas_controles = tk.Canvas(
+            controles,
+            bg="#eef2f7",
+            width=255,
+            height=1,
+            highlightthickness=0
+        )
+        barra_controles = ttk.Scrollbar(
+            controles,
+            orient="vertical",
+            command=canvas_controles.yview
+        )
+        barra_controles.pack(side="right", fill="y")
+        canvas_controles.pack(side="left", fill="both", expand=True)
+        canvas_controles.configure(yscrollcommand=barra_controles.set)
+
+        painel_controles = tk.Frame(canvas_controles, bg="#eef2f7")
+        janela_controles = canvas_controles.create_window(
+            (0, 0),
+            window=painel_controles,
+            anchor="nw"
+        )
+        self.criar_controles(painel_controles)
+        painel_controles.bind(
+            "<Configure>",
+            lambda evento: canvas_controles.configure(
+                scrollregion=canvas_controles.bbox("all"),
+                width=painel_controles.winfo_reqwidth()
+            )
+        )
+        canvas_controles.bind(
+            "<Configure>",
+            lambda evento: canvas_controles.itemconfigure(
+                janela_controles,
+                width=evento.width
+            )
+        )
 
         self.label_original = self.criar_card(
             principal,
