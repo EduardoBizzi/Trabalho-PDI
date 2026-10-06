@@ -281,8 +281,9 @@ class Aplicacao:
             style="Grupo.TLabelframe"
         )
         frame.pack(fill="x", pady=(0, 8))
-        frame.columnconfigure(0, weight=1)
-        frame.columnconfigure(1, weight=1)
+        colunas = 3 if len(botoes) == 3 else 2
+        for coluna in range(colunas):
+            frame.columnconfigure(coluna, weight=1)
 
         for i, (texto, comando, destaque) in enumerate(botoes):
             botao = ttk.Button(
@@ -296,8 +297,8 @@ class Aplicacao:
                 )
             )
             botao.grid(
-                row=i // 2,
-                column=i % 2,
+                row=i // colunas,
+                column=i % colunas,
                 sticky="ew",
                 padx=4,
                 pady=3
