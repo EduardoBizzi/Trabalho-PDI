@@ -4,28 +4,34 @@ Aplicativo desktop em Python com interface Tkinter para aplicar filtros e transf
 
 ## Windows
 
-Instale o Python 3 com suporte ao Tcl/Tk. No PowerShell, dentro da pasta do projeto, execute:
+Instale o Python 3.12 ou superior com suporte ao Tcl/Tk. No PowerShell, dentro da pasta do projeto, execute:
 
 ```powershell
 py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install numpy opencv-python Pillow pygame
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe main.py
 ```
 
 ## Linux
 
-Instale o Python 3, o suporte a ambientes virtuais e o Tkinter. No Ubuntu/Debian:
+Use Python 3.12 ou superior, com suporte a ambientes virtuais e Tkinter. No Ubuntu/Debian:
 
 ```bash
 sudo apt update
 sudo apt install python3 python3-venv python3-tk
 ```
 
-Em outras distribuições, instale os pacotes equivalentes. Depois, dentro da pasta do projeto:
+No Fedora:
+
+```bash
+sudo dnf install python3 python3-pip python3-tkinter
+```
+
+Em outras distribuições, instale os pacotes equivalentes. O Tkinter é instalado pelo sistema, não pelo `pip`. Depois, dentro da pasta do projeto:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install numpy opencv-python Pillow pygame
+.venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python main.py
 ```
 
