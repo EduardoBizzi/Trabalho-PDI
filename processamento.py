@@ -2,6 +2,20 @@ import numpy as np
 import math
 
 
+def rotacionar_90(imagem):
+    # k=-1 gira 90 graus no sentido horário.
+    return np.rot90(imagem, k=-1).copy()
+
+
+def espelhar_horizontalmente(imagem):
+    return imagem[:, ::-1].copy()
+
+
+def ajustar_brilho(imagem, valor):
+    # Soma em int16 para evitar overflow de uint8 antes do clip.
+    return np.clip(imagem.astype(np.int16) + valor, 0, 255).astype(np.uint8)
+
+
 def obter_cinza(imagem):
     if len(imagem.shape) == 2:
         return imagem.copy()

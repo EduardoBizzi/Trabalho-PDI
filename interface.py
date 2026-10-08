@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 import cv2
 import numpy as np
 from PIL import Image, ImageTk
@@ -10,6 +10,11 @@ try:
     import pygame
 except ImportError:
     pygame = None
+
+try:
+    from ultralytics import YOLO
+except ImportError:
+    YOLO = None
 
 
 class Aplicacao:
@@ -26,6 +31,11 @@ class Aplicacao:
         self.camera = None
         self.camera_ativa = False
         self.modo_video = None
+        self.camera_callback = None
+        self.modelo_yolo = None
+        self.yolo_conf = 0.40
+        self.canny_baixo = 100
+        self.canny_alto = 200
 
         self.musica_tocando = False
         self.musica_carregada = False
@@ -78,6 +88,21 @@ class Aplicacao:
         )
 
     def criar_interface(self):
+        menu = tk.Menu(self.janela)
+        extras = tk.Menu(menu, tearoff=False)
+        for texto, comando in [
+            ("Detecção por Cor", self.rastrear_vermelho),
+            ("Rotacionar 90°", self.rotacionar_imagem),
+            ("Espelhar Horizontalmente", self.espelhar_imagem),
+            ("Ajustar Brilho", self.ajustar_brilho),
+            ("Salvar Resultado", self.salvar_resultado),
+            ("Configurar Canny", self.configurar_canny),
+            ("Confiança YOLO", self.configurar_confianca_yolo)
+        ]:
+            extras.add_command(label=texto, command=comando)
+        menu.add_cascade(label="Extras", menu=extras)
+        self.janela.config(menu=menu)
+
         cabecalho = tk.Frame(
             self.janela,
             bg="#1f2937",
@@ -128,6 +153,17 @@ class Aplicacao:
             sticky="nsew",
             padx=(0, 10)
         )
+
+        grupo_tracking = self.grupo(
+            controles,
+            "Rastreamento e Áudio",
+            [
+                ("Tracking YOLO + Música", self.iniciar_tracking_yolo, True),
+                ("Parar Câmera", self.parar_camera, False)
+            ],
+            colunas=1
+        )
+        grupo_tracking.pack_configure(side="bottom")
 
         canvas_controles = tk.Canvas(
             controles,
@@ -294,15 +330,6 @@ class Aplicacao:
             ]
         )
 
-        self.grupo(
-            painel,
-            "Rastreamento e Áudio",
-            [
-                ("Rastrear + Música", self.rastrear_vermelho, True),
-                ("Parar Câmera", self.parar_camera, False)
-            ]
-        )
-
         ttk.Button(
             painel,
             text="Limpar Tela",
@@ -310,14 +337,15 @@ class Aplicacao:
             style="Acao.TButton"
         ).pack(fill="x", pady=(0, 4))
 
-    def grupo(self, painel, titulo, botoes):
+    def grupo(self, painel, titulo, botoes, colunas=None):
         frame = ttk.LabelFrame(
             painel,
             text=titulo,
             style="Grupo.TLabelframe"
         )
         frame.pack(fill="x", pady=(0, 8))
-        colunas = 3 if len(botoes) == 3 else 2
+        if colunas is None:
+            colunas = 3 if len(botoes) == 3 else 2
         for coluna in range(colunas):
             frame.columnconfigure(coluna, weight=1)
 
@@ -341,7 +369,9 @@ class Aplicacao:
             )
 
             if len(botoes) == 1:
-                botao.grid(columnspan=2)
+                botao.grid(columnspan=colunas)
+
+        return frame
 
     def criar_card(self, principal, coluna, titulo, texto):
         card = tk.Frame(
@@ -483,6 +513,74 @@ class Aplicacao:
         )
         label.image = foto
 
+    def aplicar_extra(self, operacao):
+        if self.imagem_original is None:
+            messagebox.showwarning("Aviso", "Abra uma imagem primeiro.")
+            return
+        self.imagem_resultado = operacao(self.imagem_original)
+        self.mostrar_imagem(self.imagem_resultado, self.label_resultado)
+
+    def rotacionar_imagem(self):
+        self.aplicar_extra(processamento.rotacionar_90)
+
+    def espelhar_imagem(self):
+        self.aplicar_extra(processamento.espelhar_horizontalmente)
+
+    def ajustar_brilho(self):
+        if self.imagem_original is None:
+            messagebox.showwarning("Aviso", "Abra uma imagem primeiro.")
+            return
+        valor = simpledialog.askinteger(
+            "Ajustar Brilho", "Valor de -100 a +100:",
+            initialvalue=0, minvalue=-100, maxvalue=100, parent=self.janela
+        )
+        if valor is not None:
+            self.aplicar_extra(lambda imagem: processamento.ajustar_brilho(imagem, valor))
+
+    def salvar_resultado(self):
+        if self.imagem_resultado is None:
+            messagebox.showwarning("Aviso", "Não há resultado para salvar.")
+            return
+        caminho = filedialog.asksaveasfilename(
+            title="Salvar Resultado", defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("JPG", "*.jpg *.jpeg")]
+        )
+        if not caminho:
+            return
+        try:
+            salvo = cv2.imwrite(caminho, self.imagem_resultado)
+        except cv2.error:
+            salvo = False
+        if not salvo:
+            messagebox.showerror("Erro", "Não foi possível salvar o resultado.")
+
+    def configurar_canny(self):
+        baixo = simpledialog.askinteger(
+            "Configurar Canny", "Limiar baixo (0 a 255):",
+            initialvalue=self.canny_baixo, parent=self.janela
+        )
+        if baixo is None:
+            return
+        alto = simpledialog.askinteger(
+            "Configurar Canny", "Limiar alto (0 a 255):",
+            initialvalue=self.canny_alto, parent=self.janela
+        )
+        if alto is None:
+            return
+        if not 0 <= baixo < alto <= 255:
+            messagebox.showerror("Erro", "Use 0 <= baixo < alto <= 255.")
+            return
+        self.canny_baixo, self.canny_alto = baixo, alto
+
+    def configurar_confianca_yolo(self):
+        valor = simpledialog.askfloat(
+            "Confiança YOLO", "Confiança de 0.1 a 0.9:",
+            initialvalue=self.yolo_conf, minvalue=0.1, maxvalue=0.9,
+            parent=self.janela
+        )
+        if valor is not None:
+            self.yolo_conf = valor
+
     def obter_cinza(self):
         if self.imagem_original is None:
             messagebox.showwarning(
@@ -562,8 +660,8 @@ class Aplicacao:
         if imagem is not None:
             resultado = self.canny_manual(
                 imagem,
-                100,
-                200
+                self.canny_baixo,
+                self.canny_alto
             )
             self.imagem_resultado = resultado
             self.mostrar_imagem(
@@ -765,7 +863,9 @@ class Aplicacao:
         if self.camera_ativa:
             return
 
-        self.camera = cv2.VideoCapture(0)
+        # No Windows, DirectShow evita a abertura lenta/travada do backend automático.
+        backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+        self.camera = cv2.VideoCapture(0, backend)
 
         if not self.camera.isOpened():
             messagebox.showerror(
@@ -888,8 +988,8 @@ class Aplicacao:
         if self.modo_video == "canny":
             return cv2.Canny(
                 cinza,
-                100,
-                200
+                self.canny_baixo,
+                self.canny_alto
             )
 
         kernel = np.ones(
@@ -929,8 +1029,76 @@ class Aplicacao:
 
     def rastrear_vermelho(self):
         if self.verificar_camera():
-            self.modo_video = "rastrear"
+            self.parar_musica()
+            self.modo_video = "cor"
             self.atualizar_status()
+
+    def iniciar_tracking_yolo(self):
+        if not self.verificar_camera():
+            return
+        if YOLO is None:
+            messagebox.showwarning(
+                "YOLO", "O ultralytics não está instalado.\n\nExecute:\npip install ultralytics"
+            )
+            return
+        try:
+            # O modelo é carregado somente quando o tracking é solicitado.
+            if self.modelo_yolo is None:
+                self.modelo_yolo = YOLO("yolo11n.pt")
+            elif self.modo_video != "yolo":
+                # Uma nova sessão não deve reutilizar trajetórias antigas.
+                predictor = self.modelo_yolo.predictor
+                for tracker in getattr(predictor, "trackers", []):
+                    tracker.reset()
+        except Exception as erro:
+            messagebox.showerror("YOLO", f"Não foi possível carregar o YOLO11n.\n{erro}")
+            return
+        self.parar_musica()
+        self.modo_video = "yolo"
+        self.atualizar_status()
+
+    def rastrear_objetos_yolo(self, frame):
+        try:
+            resultados = self.modelo_yolo.track(
+                frame, persist=True, tracker="bytetrack.yaml",
+                conf=self.yolo_conf, imgsz=320, verbose=False
+            )
+        except Exception as erro:
+            # Desativa o modo para evitar repetir um erro a cada frame.
+            self.modo_video = "normal"
+            self.parar_musica()
+            messagebox.showerror("YOLO", f"Não foi possível executar o tracking.\n{erro}")
+            return frame
+
+        if not resultados:
+            self.parar_musica()
+            return frame
+        resultado = resultados[0]
+        boxes = resultado.boxes
+        if boxes is None or len(boxes) == 0 or boxes.id is None:
+            self.parar_musica()
+            return frame
+
+        tem_pessoa = False
+        nomes = {"person": "pessoa", "bottle": "garrafa", "cell phone": "celular"}
+        for caixa, classe, track_id in zip(
+            boxes.xyxy.cpu().numpy(), boxes.cls.cpu().numpy(), boxes.id.cpu().numpy()
+        ):
+            nome = resultado.names[int(classe)]
+            if nome == "person":
+                tem_pessoa = True
+            x1, y1, x2, y2 = map(int, caixa)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(
+                frame, f"{nomes.get(nome, nome)} #{int(track_id)}",
+                (x1, max(y1 - 10, 20)), cv2.FONT_HERSHEY_SIMPLEX,
+                0.6, (0, 255, 0), 2
+            )
+        if tem_pessoa:
+            self.iniciar_musica()
+        else:
+            self.parar_musica()
+        return frame
 
     def preparar_musica(self):
         if (
@@ -1135,6 +1303,7 @@ class Aplicacao:
         return frame
 
     def atualizar_camera(self):
+        self.camera_callback = None
         if (
             not self.camera_ativa
             or self.camera is None
@@ -1152,15 +1321,20 @@ class Aplicacao:
             (640, 480)
         )
 
-        if self.modo_video == "rastrear":
+        if self.modo_video == "yolo":
+            processado = self.rastrear_objetos_yolo(frame)
+        elif self.modo_video == "cor":
             processado = self.rastrear_objeto_vermelho(
                 frame
             )
         else:
+            if self.musica_tocando:
+                self.parar_musica()
             processado = self.processar_frame_video(
                 frame
             )
 
+        self.imagem_resultado = processado
         self.mostrar_imagem(
             processado,
             self.label_resultado
@@ -1168,10 +1342,8 @@ class Aplicacao:
 
         self.atualizar_status()
 
-        self.janela.after(
-            30,
-            self.atualizar_camera
-        )
+        if self.camera_ativa:
+            self.camera_callback = self.janela.after(30, self.atualizar_camera)
 
     def atualizar_status(self):
         self.status_camera.config(
@@ -1195,7 +1367,8 @@ class Aplicacao:
             "dilatacao": "dilatação",
             "abertura": "abertura",
             "fechamento": "fechamento",
-            "rastrear": "rastreamento vermelho"
+            "yolo": "Tracking YOLO + Música",
+            "cor": "detecção por cor"
         }
 
         self.status_modo.config(
@@ -1213,6 +1386,9 @@ class Aplicacao:
     def parar_camera(self):
         self.camera_ativa = False
         self.modo_video = None
+        if self.camera_callback is not None:
+            self.janela.after_cancel(self.camera_callback)
+            self.camera_callback = None
 
         if self.camera is not None:
             try:
@@ -1246,13 +1422,7 @@ class Aplicacao:
         self.atualizar_status()
 
     def fechar_aplicacao(self):
-        self.camera_ativa = False
-
-        if self.camera is not None:
-            try:
-                self.camera.release()
-            except Exception:
-                pass
+        self.parar_camera()
 
         if pygame is not None:
             try:
